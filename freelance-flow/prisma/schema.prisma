@@ -1,0 +1,91 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  FREELANCER
+  PAYER
+}
+
+model User {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  email         String    @unique
+  password      String
+  role          UserRole
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  projectsIDs   String[]  @db.ObjectId
+  projects      Project[] @relation("ProjectMembers", fields: [projectsIDs], references: [id])
+  ownedProjects Project[] @relation("ProjectOwner")
+  timeEntries   TimeEntry[]
+  payments      Payment[] @relation("PaymentReceiver")
+  sentPayments  Payment[] @relation("PaymentSender")
+}
+
+model Project {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  description String?
+  hourlyRate  Float
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // Relations
+  owner       User      @relation("ProjectOwner", fields: [ownerId], references: [id])
+  ownerId     String    @db.ObjectId
+  memberIDs   String[]  @db.ObjectId
+  members     User[]    @relation("ProjectMembers", fields: [memberIDs], references: [id])
+  timeEntries TimeEntry[]
+  payments    Payment[]
+}
+
+model TimeEntry {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  startTime   DateTime
+  endTime     DateTime?
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // Relations
+  user        User      @relation(fields: [userId], references: [id])
+  userId      String    @db.ObjectId
+  project     Project   @relation(fields: [projectId], references: [id])
+  projectId   String    @db.ObjectId
+  payment     Payment?  @relation(fields: [paymentId], references: [id])
+  paymentId   String?   @db.ObjectId
+}
+
+model Payment {
+  id                    String    @id @default(auto()) @map("_id") @db.ObjectId
+  amount                Float
+  status                String    // PENDING, RECEIPT_UPLOADED, DOCUMENT_SIGNED, COMPLETED, CANCELLED
+  receiptUrl            String?   // URL to uploaded receipt
+  signedDocumentUrl     String?   // URL to signed document uploaded by freelancer
+  requiresSignedDocument Boolean   @default(false) // Whether the payment requires a signed document
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  
+  // Relations
+  project               Project   @relation(fields: [projectId], references: [id])
+  projectId             String    @db.ObjectId
+  sender                User      @relation("PaymentSender", fields: [senderId], references: [id])
+  senderId              String    @db.ObjectId
+  receiver              User      @relation("PaymentReceiver", fields: [receiverId], references: [id])
+  receiverId            String    @db.ObjectId
+  timeEntries           TimeEntry[]
+}

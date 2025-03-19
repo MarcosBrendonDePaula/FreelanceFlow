@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  # Aplicação Next.js
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: freelanceflow-app
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+      # URL do MongoDB para o Prisma (com replica set)
+      - DATABASE_URL=mongodb://mongo:27017/freelanceflow?replicaSet=rs0
+      # Configurações do NextAuth
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=freelanceflow_nextauth_secret_key_must_be_at_least_32_chars
+    depends_on:
+      - mongo
+      - mongo-init
+    restart: unless-stopped
+    networks:
+      - freelanceflow-network
+    # Comando para gerar o Prisma client e iniciar a aplicação
+    command: >
+      sh -c "npx prisma generate && npm run dev"
+
+  # Banco de dados MongoDB configurado como replica set
+  mongo:
+    image: mongo:latest
+    container_name: freelanceflow-mongo
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo-data:/data/db
+      - ./init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+    restart: unless-stopped
+    networks:
+      - freelanceflow-network
+    healthcheck:
+      test: test $$(echo "rs.status().ok || rs.initiate().ok" | mongo --quiet) -eq 1
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  # Serviço para inicializar o replica set do MongoDB
+  mongo-init:
+    image: mongo:latest
+    container_name: freelanceflow-mongo-init
+    volumes:
+      - ./mongo-init.sh:/mongo-init.sh
+    entrypoint: ["bash", "/mongo-init.sh"]
+    depends_on:
+      - mongo
+    networks:
+      - freelanceflow-network
+
+  # Interface de administração para MongoDB
+  mongo-express:
+    image: mongo-express:latest
+    container_name: freelanceflow-mongo-express
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_SERVER=mongo
+      - ME_CONFIG_MONGODB_PORT=27017
+      - ME_CONFIG_BASICAUTH_USERNAME=admin
+      - ME_CONFIG_BASICAUTH_PASSWORD=pass
+    depends_on:
+      - mongo
+      - mongo-init
+    restart: unless-stopped
+    networks:
+      - freelanceflow-network
+
+  # Opcional: Redis para cache e gerenciamento de sessões
+  redis:
+    image: redis:alpine
+    container_name: freelanceflow-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - freelanceflow-network
+
+volumes:
+  mongo-data:
+  redis-data:
+
+networks:
+  freelanceflow-network:
+    driver: bridge
